@@ -5,55 +5,82 @@ const crypto = require('crypto');
 // ---------------------------------------------------------------------------
 //  YAPILANDIRMA
 // ---------------------------------------------------------------------------
-const KV_URL = (process.env.KV_REST_API_URL || '').replace(/\/+$/, '');
-const KV_TOKEN = process.env.KV_REST_API_TOKEN || '';
-const STORE_KEY = 'velocity:keys';
+const PG_URL = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL || '';
+const STORE_ID = 'velocity:keys';
 
 // ---------------------------------------------------------------------------
 //  VERİ KATMANI
-//  KV (Upstash) bağlıysa kalıcı; değilse geçici bellek modu.
+//  Supabase Postgres bağlıysa kalıcı; değilse geçici bellek modu.
 // ---------------------------------------------------------------------------
 let memory = null;
+let pool = null;
+let table_ok = false;
 
-const kv_ready = () => !!(KV_URL && KV_TOKEN);
+const pg_ready = () => !!PG_URL;
+
+function get_pool() {
+  if (!pg_ready() || pool) return pool;
+  try {
+    const { Pool } = require('pg');
+    pool = new Pool({
+      connectionString: PG_URL,
+      max: 1,
+      connectionTimeoutMillis: 5000,
+      ssl: { rejectUnauthorized: false },
+    });
+  } catch {
+    pool = null;
+  }
+  return pool;
+}
+
+async function ensure_table() {
+  if (table_ok) return true;
+  const p = get_pool();
+  if (!p) return false;
+  try {
+    await p.query(
+      'CREATE TABLE IF NOT EXISTS app_state (id TEXT PRIMARY KEY, payload JSONB NOT NULL)'
+    );
+    table_ok = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function empty_store() {
   return { keys: {}, licenses: {} };
 }
 
 async function load_store() {
-  if (!kv_ready()) return (memory = memory || empty_store());
+  const p = get_pool();
+  if (!p) return (memory = memory || empty_store());
   try {
-    const r = await fetch(`${KV_URL}/get/${STORE_KEY}`, {
-      headers: { Authorization: `Bearer ${KV_TOKEN}` },
-    });
-    if (!r.ok) return empty_store();
-    const j = await r.json();
-    if (j && j.result !== null && j.result !== undefined) {
-      const parsed = JSON.parse(j.result);
+    await ensure_table();
+    const r = await p.query('SELECT payload FROM app_state WHERE id = $1', [STORE_ID]);
+    if (r.rows.length && r.rows[0].payload) {
+      const parsed = r.rows[0].payload;
       parsed.keys = parsed.keys || {};
       parsed.licenses = parsed.licenses || {};
+      memory = parsed;
       return parsed;
     }
   } catch {}
-  return empty_store();
+  return (memory = memory || empty_store());
 }
 
 async function save_store(store) {
-  if (!kv_ready()) {
-    memory = store;
-    return false;
-  }
+  memory = store;
+  const p = get_pool();
+  if (!p) return false;
   try {
-    const r = await fetch(`${KV_URL}/set/${STORE_KEY}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${KV_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ value: JSON.stringify(store) }),
-    });
-    return r.ok;
+    await ensure_table();
+    await p.query(
+      'INSERT INTO app_state (id, payload) VALUES ($1, $2::jsonb) ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload',
+      [STORE_ID, JSON.stringify(store)]
+    );
+    return true;
   } catch {
     return false;
   }
@@ -87,7 +114,7 @@ function iso(date) {
   return date ? date.toISOString() : '';
 }
 function send(res, data) {
-  data.storage = kv_ready() ? 'kv' : 'memory';
+  data.storage = pg_ready() ? 'pg' : 'memory';
   res.status(200).json(data);
 }
 
