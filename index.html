@@ -134,7 +134,7 @@ async function api(action, extra) {
 
 function showBannerFrom(j) {
   if (j && j.storage === 'memory') {
-    banner('Uyarı: KV bağlı değil — veriler geçici (sunucu yeniden başlayınca silinir). Upstash KV bağla.');
+    banner('Uyarı: Postgres bağlı değil — veriler geçici (sunucu yeniden başlayınca silinir). Supabase/Postgres bağla.');
   } else {
     banner('');
   }
@@ -146,7 +146,7 @@ async function testApi() {
   try {
     const j = await api('ping');
     showBannerFrom(j);
-    out.innerHTML = '<span class="okk">✓ API çalışıyor</span> (depolama: ' + (j.storage === 'kv' ? 'KV kalıcı' : 'geçici bellek') + ')';
+    out.innerHTML = '<span class="okk">✓ API çalışıyor</span> (depolama: ' + (j.storage === 'pg' ? 'Postgres kalıcı' : 'geçici bellek') + ')';
   } catch (e) {
     out.innerHTML = '<span class="badx">✗ ' + e.message + '</span>';
   }
