@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Velocity — Key Paneli</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0b0d10;
+    color: #d7dde4;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .wrap { width: 100%; max-width: 1080px; }
+  h1 { font-size: 26px; font-weight: 700; letter-spacing: 4px; color: #fff; margin-bottom: 4px; }
+  h1 span { color: #2ee272; }
+  .hint { color: #7b8490; font-size: 13px; margin-bottom: 16px; }
+  .banner {
+    display: none;
+    background: #332b12;
+    border: 1px solid #5a4c1a;
+    color: #ffc457;
+    font-size: 13px;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+  }
+  .banner.show { display: block; }
+  .card { background: #13161b; border: 1px solid #242a31; border-radius: 12px; padding: 20px; margin-bottom: 18px; }
+  .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 2px; color: #8b95a1; margin-bottom: 14px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  input, button {
+    background: #1b2026; border: 1px solid #2b323a; color: #e6ebf0;
+    border-radius: 6px; font-size: 14px; padding: 9px 12px; outline: none;
+  }
+  input:focus { border-color: #2ee272; }
+  button { cursor: pointer; transition: background .15s; }
+  button:hover { background: #2a313a; }
+  button.primary { background: #1d9d50; border-color: #1d9d50; font-weight: 700; }
+  button.primary:hover { background: #25b75e; }
+  button.ghost { border-color: #2b323a; }
+  .lbl { color: #8b95a1; font-size: 13px; }
+  input.num { width: 76px; }
+  .msg { color: #2ee272; font-size: 13px; min-height: 18px; }
+  .msg.err { color: #ff6f6f; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid #22282f; }
+  th { color: #8b95a1; font-weight: 600; letter-spacing: 1px; font-size: 11px; text-transform: uppercase; }
+  td.k { font-family: Consolas, monospace; color: #ffd866; }
+  .badge { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+  .b-unused { background: #16283a; color: #5fb0ff; }
+  .b-active { background: #123322; color: #2ee272; }
+  .b-banned { background: #33121a; color: #ff6f6f; }
+  .b-expired { background: #332b12; color: #ffc457; }
+  .ban { color: #ff6f6f; border-color: #4a222b; }
+  .ban:hover { background: #4a222b; }
+  .copy { color: #2ee272; border-color: #17422a; }
+  .copy:hover { background: #17422a; }
+  .skip { color: #7b8490; font-size: 12px; }
+  .status .okk { color: #2ee272; font-weight: 700; }
+  .status .badx { color: #ff6f6f; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>VELOCITY <span>KEY PANELİ</span></h1>
+  <div class="hint">Üret → Key'i kopyala → Loader'da yapıştır.</div>
+
+  <div class="banner" id="banner"></div>
+
+  <div class="card">
+    <h2>Bağlantı Durumu</h2>
+    <div class="row">
+      <button class="ghost" id="btn-test">API'YI TEST ET</button>
+      <span class="status" id="test-out">Panel yüklendi. Test et butonuna bas.</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Anahtar Üret</h2>
+    <div class="row">
+      <span class="lbl">Adet</span>
+      <input class="num" id="count" type="number" value="1" min="1" max="100">
+      <span class="lbl">Gün</span>
+      <input class="num" id="days" type="number" value="30" min="0" title="0 = sınırsız">
+      <button class="primary" id="btn-gen">ÜRET</button>
+      <button class="ghost" id="btn-gen0">SINIRSIZ</button>
+    </div>
+    <div class="msg" id="gen-msg"></div>
+    <div class="row" id="gen-list" style="margin-top:6px"></div>
+  </div>
+
+  <div class="card">
+    <h2>Anahtar Listesi <button class="ghost" id="btn-list" style="margin-left:8px">YENİLE</button></h2>
+    <div style="overflow-x:auto"><table>
+      <thead><tr>
+        <th>Anahtar</th><th>Durum</th><th>Bitiş</th><th>Gün Kaldı</th><th>HWID</th><th></th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function say(text, err) {
+  const el = $('gen-msg');
+  el.textContent = text;
+  el.className = 'msg' + (err ? ' err' : '');
+}
+function banner(text) {
+  const b = $('banner');
+  if (text) { b.textContent = text; b.className = 'banner show'; }
+  else b.className = 'banner';
+}
+
+async function api(action, extra) {
+  const p = new URLSearchParams({ action, ...extra });
+  let r;
+  try {
+    r = await fetch('api?' + p.toString());
+  } catch (e) {
+    throw new Error('Bağlantı yok: ' + e.message);
+  }
+  if (!r.ok) throw new Error('Sunucu ' + r.status + ' döndürdü — /api fonksiyonu deploy edilmedi.');
+  return r.json();
+}
+
+function showBannerFrom(j) {
+  if (j && j.storage === 'memory') {
+    banner('Uyarı: KV bağlı değil — veriler geçici (sunucu yeniden başlayınca silinir). Upstash KV bağla.');
+  } else {
+    banner('');
+  }
+}
+
+async function testApi() {
+  const out = $('test-out');
+  out.innerHTML = '...';
+  try {
+    const j = await api('ping');
+    showBannerFrom(j);
+    out.innerHTML = '<span class="okk">✓ API çalışıyor</span> (depolama: ' + (j.storage === 'kv' ? 'KV kalıcı' : 'geçici bellek') + ')';
+  } catch (e) {
+    out.innerHTML = '<span class="badx">✗ ' + e.message + '</span>';
+  }
+}
+
+async function generate(days) {
+  const count = Math.min(Math.max(parseInt($('count').value || '1', 10), 1), 100);
+  const d = Math.max(parseInt(days, 10), 0);
+  say('');
+  try {
+    const j = await api('generate', { count, days: d });
+    showBannerFrom(j);
+    if (j.status !== 'ok') return say(j.message || 'Hata', true);
+    say(count + ' anahtar üretildi.');
+    const box = $('gen-list');
+    box.textContent = '';
+    j.keys.forEach(({ key, expires }) => {
+      const c = document.createElement('button');
+      c.className = 'copy';
+      c.textContent = key;
+      c.title = expires ? ('Bitiş: ' + expires.replace('T', ' ').slice(0, 16)) : 'Sınırsız';
+      c.onclick = () => navigator.clipboard.writeText(key).then(() => { c.textContent = key + ' ✔'; });
+      box.appendChild(c);
+    });
+    loadList();
+  } catch (e) {
+    say(e.message, true);
+  }
+}
+
+$('btn-gen').addEventListener('click', () => generate($('days').value || '30'));
+$('btn-gen0').addEventListener('click', () => generate('0'));
+$('btn-list').addEventListener('click', loadList);
+$('btn-test').addEventListener('click', testApi);
+
+async function loadList() {
+  const out = $('test-out');
+  try {
+    const j = await api('list');
+    showBannerFrom(j);
+    if (j.status !== 'ok') return out.innerHTML = '<span class="badx">✗ ' + (j.message || 'Hata') + '</span>';
+    out.innerHTML = '<span class="okk">✓</span> ' + j.keys.length + ' anahtar';
+    const tb = $('tbody');
+    tb.textContent = '';
+    j.keys.forEach((it) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="k">' + it.key + '</td>' +
+        '<td><span class="badge b-' + it.status + '">' + it.status + '</span></td>' +
+        '<td class="skip">' + (it.expires ? it.expires.replace('T', ' ').slice(0, 16) : 'sınırsız') + '</td>' +
+        '<td>' + (it.status === 'unused' || it.status === 'active' ? (it.expires ? it.remaining + ' gün' : 'sınırsız') : '—') + '</td>' +
+        '<td class="skip">' + (it.hwid ? it.hwid.slice(0, 12) + '…' : '') + '</td>' +
+        '<td><button class="ban" data-k="' + it.key + '">' + (it.status === 'banned' ? 'AÇ' : 'BANLA') + '</button></td>';
+      tb.appendChild(tr);
+    });
+    tb.querySelectorAll('.ban').forEach((b) => {
+      b.onclick = async () => {
+        const r = await api('ban', { key: b.dataset.k }).catch(() => null);
+        if (r && r.status === 'ok') loadList();
+      };
+    });
+  } catch (e) {
+    out.innerHTML = '<span class="badx">✗ ' + e.message + '</span>';
+  }
+}
+
+loadList();
+</script>
+</body>
+</html>
